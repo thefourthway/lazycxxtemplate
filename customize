@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    echo "usage: ./customize <libname> <appname>" >&2
+}
+
+if [[ $# -ne 2 ]]; then
+    usage
+    exit 2
+fi
+
+lib_name="$1"
+app_name="$2"
+
+valid_name='^[A-Za-z][A-Za-z0-9_-]*$'
+if [[ ! "$lib_name" =~ $valid_name ]]; then
+    echo "invalid libname: must start with a letter and contain only letters, numbers, '_' or '-'" >&2
+    exit 2
+fi
+
+if [[ ! "$app_name" =~ $valid_name ]]; then
+    echo "invalid appname: must start with a letter and contain only letters, numbers, '_' or '-'" >&2
+    exit 2
+fi
+
+if [[ "$lib_name" == "$app_name" ]]; then
+    echo "libname and appname must be different because they are separate directories and CMake targets" >&2
+    exit 2
+fi
+
+lib_ns="$(printf '%s' "$lib_name" | sed -E 's/[^A-Za-z0-9_]/_/g')"
+lib_cmake_prefix="$(printf '%s' "$lib_name" | tr '[:lower:]-' '[:upper:]_')"
+app_cmake_prefix="$(printf '%s' "$app_name" | tr '[:lower:]-' '[:upper:]_')"
+
+escape_sed_replacement() {
+    printf '%s' "$1" | sed -e 's/[\/&]/\\&/g'
+}
+
+lib_name_sed="$(escape_sed_replacement "$lib_name")"
+app_name_sed="$(escape_sed_replacement "$app_name")"
+lib_ns_sed="$(escape_sed_replacement "$lib_ns")"
+lib_cmake_prefix_sed="$(escape_sed_replacement "$lib_cmake_prefix")"
+app_cmake_prefix_sed="$(escape_sed_replacement "$app_cmake_prefix")"
+
+find . \
+    -path './.git' -prune -o \
+    -path './build' -prune -o \
+    -path './customize' -prune -o \
+    -type f -print0 |
+while IFS= read -r -d '' file; do
+    case "$file" in
+        *.png|*.jpg|*.jpeg|*.gif|*.pdf|*.a|*.o|*.so|*.dylib|*.dll|*.exe)
+            continue
+            ;;
+    esac
+
+    sed -i.bak \
+        -e "s/__LIB_CMAKE_PREFIX__/${lib_cmake_prefix_sed}/g" \
+        -e "s/__APP_CMAKE_PREFIX__/${app_cmake_prefix_sed}/g" \
+        -e "s/__LIB_NS__/${lib_ns_sed}/g" \
+        -e "s/__LIB_NAME__/${lib_name_sed}/g" \
+        -e "s/__APP_NAME__/${app_name_sed}/g" \
+        "$file"
+    rm -f "${file}.bak"
+done
+
+if [[ -e "$lib_name" || -e "$app_name" ]]; then
+    echo "target directory already exists" >&2
+    exit 1
+fi
+
+if [[ -d "__LIB_NAME__" ]]; then
+    mv "__LIB_NAME__" "$lib_name"
+fi
+
+if [[ -d "__APP_NAME__" ]]; then
+    mv "__APP_NAME__" "$app_name"
+fi
+
+find . -depth -name '*__LIB_NAME__*' -print0 |
+while IFS= read -r -d '' path; do
+    target="${path//__LIB_NAME__/$lib_name}"
+    mv "$path" "$target"
+done
+
+find . -depth -name '*__APP_NAME__*' -print0 |
+while IFS= read -r -d '' path; do
+    target="${path//__APP_NAME__/$app_name}"
+    mv "$path" "$target"
+done
+
+echo "Customized template: library '${lib_name}', app '${app_name}'"
