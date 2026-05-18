@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# BSD sed can fail with "RE error: illegal byte sequence" when the user's
+# locale asks it to interpret bytes as UTF-8. This template only uses ASCII
+# placeholders and replacement rules, so run text processing in the C locale.
+export LC_ALL=C
+
 usage() {
     echo "usage: ./customize <libname> <appname>" >&2
 }
